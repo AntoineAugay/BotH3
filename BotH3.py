@@ -3,7 +3,7 @@
 
 import hlt
 from hlt import constants
-from hlt.positionals import Direction
+from hlt.positionals import Direction, Position
 
 import random
 import logging
@@ -27,11 +27,15 @@ ship_move_compute = {}
 ship_stock = {}
 ship_previous_position = {}
 
+position_score = []
+best_position_list = []
 
 MIN_MEAN_CELL_HALITE = 130
 MAX_MEAN_CELL_HALITE = 240
 COEF_MEAN_CELL_HALITE_RANGE = 0.5
 COEF_HALITE_RETURN_THRESHOLD = 0.7
+SCAN_SIZE = 4
+BEST_POSITION_KEPT = 1
 
 min_coef_mean_cell_halite = 1.0 - COEF_MEAN_CELL_HALITE_RANGE/2
 x = 0
@@ -50,6 +54,39 @@ else:
 max_ship = (10 + game_map.width * 0.25) * coef_mean_cell_halite
 # Get the maximum of turn for this map
 max_turn = MAX_TURN[game_map.width]
+
+
+def scan_map():
+	position_score = []
+	for x in range(game_map.width):
+		for y in range(game_map.height):
+			position = Position(x, y)
+			position_score.append((position, compute_position_score(position)))
+	position_score.sort(key=lambda element: element[1], reverse=True)
+	return position_score
+
+def compute_position_score(position):
+	sum = 0
+	for x in range(-SCAN_SIZE, SCAN_SIZE+1):
+		for y in range(-SCAN_SIZE, SCAN_SIZE+1):
+			sum += game_map[game_map.normalize(Position(position.x + x, position.y + y))].halite_amount
+	return sum
+
+def get_best_position():
+	best_position_list = []
+	for position,score in position_score:
+		if len(best_position_list) < BEST_POSITION_KEPT:
+			is_far_enough = True
+			for best_position in best_position_list:
+				if game_map.calculate_distance(position, best_position) < SCAN_SIZE*2:
+					is_far_enough = False
+					break
+
+			if is_far_enough:
+				best_position_list.append(position)
+		else:
+			break;
+	return best_position_list
 
 # Return true if one of me ship is position
 def is_my_ship(position):
@@ -99,13 +136,19 @@ def end_game_management():
 			for ship in me.get_ships():
 				ship_status[ship.id] = "end_game"
 
+
 while True:
 	game.update_frame()
 	me = game.me
 	game_map = game.game_map
 	command_queue = []
-	logging.info("max_ship:{}".format(max_ship))
-
+	
+	if game.turn_number % 20 == 1:
+		position_score = scan_map()
+		#logging.info("position_score:{}".format(position_score))
+		best_position_list = get_best_position()
+		logging.info("best_position_list:{}".format(best_position_list))
+	
 	counter_ship_on_shipyard()
 	end_game_management()
 	
@@ -196,7 +239,7 @@ while True:
 		if ship_move == None:
 			command_queue.append(ship.stay_still())
 		else:
-			ship_move_compute[ship.id].append(ship.move(ship_move))
+			command_queue.append(ship.move(ship_move))
 		
 		ship_previous_position[ship.id] = ship.position
 		
