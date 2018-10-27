@@ -22,11 +22,17 @@ MAX_TURN = {\
 
 game.ready("MyPythonBotV15_add_dropoff_management")
 
+"""
+	ships info
+"""
 ship_status = {}
 ship_move_compute = {}
 ship_stock = {}
 ship_previous_position = {}
 
+"""
+	map info
+"""
 position_score = []
 best_position_list = []
 
@@ -34,8 +40,11 @@ MIN_MEAN_CELL_HALITE = 130
 MAX_MEAN_CELL_HALITE = 240
 COEF_MEAN_CELL_HALITE_RANGE = 0.5
 COEF_HALITE_RETURN_THRESHOLD = 0.7
-SCAN_SIZE = 4
+SCAN_SIZE = 3
 BEST_POSITION_KEPT = 1
+
+SHIP_BEFORE_DROPOFF = 15
+MAX_DROPOFF = 1
 
 min_coef_mean_cell_halite = 1.0 - COEF_MEAN_CELL_HALITE_RANGE/2
 x = 0
@@ -51,7 +60,7 @@ else:
 	coef_mean_cell_halite = min_coef_mean_cell_halite + COEF_MEAN_CELL_HALITE_RANGE*x
 
 # Compute the maximum of ship
-max_ship = (10 + game_map.width * 0.25) * coef_mean_cell_halite
+max_ship = (10 + game_map.width * 0.3) * coef_mean_cell_halite
 # Get the maximum of turn for this map
 max_turn = MAX_TURN[game_map.width]
 
@@ -87,15 +96,19 @@ def get_best_position():
 		else:
 			break;
 	return best_position_list
-
-# Return true if one of me ship is position
+	
+"""
+	Return true if one of me ship is position
+"""
 def is_my_ship(position):
 	for ship in me.get_ships():
 		if ship.position == position:
 			return True
 	return False
 
-# Return a sorted list of (ship, distance_to_target)
+"""
+	Return a sorted list of (ship, distance_to_target)
+"""
 def distance_to_target(target, reversed=False):
 	distance_to_target = []
 	for ship in me.get_ships():
@@ -104,8 +117,21 @@ def distance_to_target(target, reversed=False):
 	if reversed:
 	   distance_to_target.reverse()
 	return distance_to_target
+	
+"""
+	Return a sorted list of (ship, distance_to_target)
+"""
+def max_distance_to_dropoff():
+	distance_to_dropoff = []
+	for ship in me.get_ships(): 
+		distance_to_dropoff.append((ship,game_map.calculate_distance(ship.position,get_closest_dropoff_position(ship.position))))
+	distance_to_dropoff.sort(key=lambda element: element[1])
+	distance_to_dropoff.reverse()
+	return distance_to_dropoff[0][1]
 
-# Return list of emptiest ships
+"""
+	Return list of emptiest ships
+"""
 def get_emptiest_ship():
 	if me.get_ships() is None or len(me.get_ships()) == 0:
 		return None
@@ -120,23 +146,74 @@ def get_emptiest_ship():
 	
 	return emptiest_ship_list	
 
+"""
+	counter_ship_on_shipyard
+"""
 def counter_ship_on_shipyard():
 	if game_map[me.shipyard].is_occupied and not is_my_ship(me.shipyard.position):
 		emptiest_ship_list = get_emptiest_ship()
+		if emptiest_ship_list is None:
+			return
 		emptiest_ship_list.sort(key=lambda ship: game_map.calculate_distance(ship.position,me.shipyard.position))	
 		kamikaze_ship = emptiest_ship_list[0]
 		ship_status[kamikaze_ship.id] = "counter_ship_on_shipyard"
 		
-
+"""
+	Compute the turn where all ship go to dropoff
+"""
 def end_game_management():
 	if game.turn_number > 300 and len(me.get_ships()) > 0:
-		dists = distance_to_target(me.shipyard.position, True)
-		max_dist = dists[0][1]
+		max_dist = max_distance_to_dropoff()
 		if game.turn_number > max_turn-max_dist-3:
 			for ship in me.get_ships():
 				ship_status[ship.id] = "end_game"
 
+"""
+	Get the closest dropoff to gieven position
+"""
+def get_closest_dropoff_position(position):
+	closest_position = me.shipyard.position
+	smallest_dist = game_map.calculate_distance(position, closest_position)
+	
+	for dropoff in me.get_dropoffs():
+		tmp_dist = game_map.calculate_distance(position, dropoff.position)
+		if tmp_dist < smallest_dist:
+			logging.info("dropoff closer")
+			closest_position = dropoff.position
+			smallest_dist = tmp_dist
+	
+	return closest_position
+	
 
+def is_ship_on_dropoff(ship):
+	if ship.position == me.shipyard.position:
+		return True
+	else:
+		for dropoff in me.get_dropoffs():
+			if ship.position == dropoff.position:
+				return True
+	return False
+
+
+
+def is_ship_with_status(status):
+	for id in ship_status:
+		if ship_status[id] == status:
+			return True
+	return False
+
+def dropoff_management():
+	if (len(me.get_ships()) > SHIP_BEFORE_DROPOFF) \
+	and (best_position_list[0] != me.shipyard.position) \
+	and (len(me.get_dropoffs()) < MAX_DROPOFF) \
+	and (is_ship_with_status("dropoff_builder") == False):
+		logging.info("GO_DROPOFFFFFF !!!")
+		closest_ship,_ = distance_to_target(best_position_list[0])[0]
+		ship_status[closest_ship.id] = "dropoff_builder"
+	
+"""
+	Main loop
+"""
 while True:
 	game.update_frame()
 	me = game.me
@@ -150,9 +227,14 @@ while True:
 		logging.info("best_position_list:{}".format(best_position_list))
 	
 	counter_ship_on_shipyard()
+	dropoff_management()
 	end_game_management()
 	
+	
 	for ship in me.get_ships():
+		
+		if ship.id in ship_move_compute:
+			continue
 		
 		if ship.id not in ship_previous_position:
 			ship_previous_position[ship.id] = ship.position
@@ -173,24 +255,52 @@ while True:
 		if ship.id not in ship_status:
 			ship_status[ship.id] = "exploring"
 
-		if ship_status[ship.id] == "counter_ship_on_shipyard" or ship_status[ship.id] == "end_game":
+		if ship_status[ship.id] == "counter_ship_on_shipyard":
 			if game_map.calculate_distance(ship.position, me.shipyard.position) == 1:
 				move = game_map.get_unsafe_moves(ship.position, me.shipyard.position)[0]
 			else:
 				move = game_map.naive_navigate(ship, me.shipyard.position)
+			ship_move_compute[ship] = ship.move(move)
 			command_queue.append(ship.move(move))
 			continue
-			
-		if ship_status[ship.id] == "returning":
-			if ship.position == me.shipyard.position:
+		elif ship_status[ship.id] == "end_game":
+			if game_map.calculate_distance(ship.position, get_closest_dropoff_position(ship.position)) == 1:
+				move = game_map.get_unsafe_moves(ship.position, get_closest_dropoff_position(ship.position))[0]
+			else:
+				move = game_map.naive_navigate(ship, get_closest_dropoff_position(ship.position))
+			ship_move_compute[ship] = ship.move(move)
+			command_queue.append(ship.move(move))
+			continue
+		elif ship_status[ship.id] == "dropoff_builder":
+			logging.info("dropoff_builder management")
+			if ship.position == best_position_list[0]:
+				if me.halite_amount + game_map[best_position_list[0]].halite_amount + ship.halite_amount >= 4000:
+					logging.info("make dropff")
+					ship_move_compute[ship] = ship.make_dropoff()
+					command_queue.append(ship.make_dropoff())
+					continue
+				else:
+					logging.info("wait to dropff")
+					ship_move_compute[ship] = ship.stay_still()
+					command_queue.append(ship.stay_still())
+					continue
+			else:
+				move = game_map.naive_navigate(ship, best_position_list[0])
+				ship_move_compute[ship] = ship.move(move)
+				command_queue.append(ship.move(move))
+				continue
+		elif ship_status[ship.id] == "returning":
+			if is_ship_on_dropoff(ship):
 				ship_status[ship.id] = "exploring"
 			else:
-				move = game_map.naive_navigate(ship, me.shipyard.position)
+				move = game_map.naive_navigate(ship, get_closest_dropoff_position(ship.position))
+				ship_move_compute[ship] = ship.move(move)
 				command_queue.append(ship.move(move))
 				continue
 		elif ship.halite_amount >= constants.MAX_HALITE*COEF_HALITE_RETURN_THRESHOLD:
 			ship_status[ship.id] = "returning"
 		elif ship_status[ship.id] == "collecting":
+			ship_move_compute[ship] = ship.stay_still()
 			command_queue.append(ship.stay_still())
 			ship_status[ship.id] = "exploring"
 			continue
@@ -200,6 +310,7 @@ while True:
 		
 		
 		if ship.halite_amount < movement_cost :
+			ship_move_compute[ship] = ship.stay_still()
 			command_queue.append(ship.stay_still())
 			continue
 		
@@ -237,8 +348,10 @@ while True:
 			ship_move = game_map.naive_navigate(ship, best_position)   
 		# Store the move for that ship
 		if ship_move == None:
+			ship_move_compute[ship] = ship.stay_still()
 			command_queue.append(ship.stay_still())
 		else:
+			ship_move_compute[ship] = ship.move(ship_move)
 			command_queue.append(ship.move(ship_move))
 		
 		ship_previous_position[ship.id] = ship.position
