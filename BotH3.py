@@ -20,7 +20,7 @@ MAX_TURN = {\
 	56:476,\
 	64:501}
 
-game.ready("MyPythonBotV15")
+game.ready("MyPythonBotV15_add_dropoff_management")
 
 ship_status = {}
 ship_move_compute = {}
