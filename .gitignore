@@ -1,0 +1,16 @@
+MyBot
+Makefile
+docs/
+hlt/
+save/
+*.hlt
+*.log
+*~
+*.pyc
+*.pyo
+__pycache__/
+*.class
+*.ipr
+*.iws
+run*
+halite.exe
