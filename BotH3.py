@@ -20,7 +20,7 @@ MAX_TURN = {\
 	56:476,\
 	64:501}
 
-game.ready("MyPythonBotV15")
+game.ready("MyPythonBotV16")
 
 """
 	ships info
@@ -269,6 +269,7 @@ while True:
 		if ship_status[ship.id] == "counter_ship_on_shipyard":
 			if game_map.calculate_distance(ship.position, me.shipyard.position) == 1:
 				move = game_map.get_unsafe_moves(ship.position, me.shipyard.position)[0]
+				ship_status[ship.id] = "exploring"
 			else:
 				move = game_map.naive_navigate(ship, me.shipyard.position)
 			ship_move_compute[ship] = ship.move(move)
