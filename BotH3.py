@@ -220,11 +220,25 @@ while True:
 	game_map = game.game_map
 	command_queue = []
 	
-	if game.turn_number % 20 == 1:
+	if game.turn_number == 1:
 		position_score = scan_map()
-		#logging.info("position_score:{}".format(position_score))
 		best_position_list = get_best_position()
 		logging.info("best_position_list:{}".format(best_position_list))
+	
+	ship_to_remove = []
+	for id in ship_status:
+		if not me.has_ship(id):
+			ship_to_remove.append(id)
+	
+	for id in ship_to_remove:
+		del ship_status[id]
+		if id in ship_move_compute:
+			del ship_move_compute[id]
+		if id in ship_stock:
+			del ship_stock[id]
+		if id in ship_previous_position:
+			del ship_previous_position[id]
+
 	
 	counter_ship_on_shipyard()
 	dropoff_management()
@@ -232,9 +246,6 @@ while True:
 	
 	
 	for ship in me.get_ships():
-		
-		if ship.id in ship_move_compute:
-			continue
 		
 		if ship.id not in ship_previous_position:
 			ship_previous_position[ship.id] = ship.position
@@ -364,10 +375,11 @@ while True:
 			nb_free_cell += 1
 
 	# Generate new ship
-	if nb_free_cell >= 2\
-	and len(me.get_ships()) < max_ship\
-	and game.turn_number <= max_turn/2\
-	and me.halite_amount >= constants.SHIP_COST\
+	if nb_free_cell >= 2 \
+	and not is_ship_with_status("dropoff_builder") \
+	and len(me.get_ships()) < max_ship \
+	and game.turn_number <= max_turn/2 \
+	and me.halite_amount >= constants.SHIP_COST \
 	and not game_map[me.shipyard].is_occupied:
 		command_queue.append(game.me.shipyard.spawn())
 
