@@ -65,6 +65,9 @@ max_ship = (10 + game_map.width * 0.3) * coef_mean_cell_halite
 max_turn = MAX_TURN[game_map.width]
 
 
+"""
+	Scan the map to score each position
+"""
 def scan_map():
 	position_score = []
 	for x in range(game_map.width):
@@ -74,6 +77,9 @@ def scan_map():
 	position_score.sort(key=lambda element: element[1], reverse=True)
 	return position_score
 
+"""
+	Compute the score of each a position
+"""
 def compute_position_score(position):
 	sum = 0
 	for x in range(-SCAN_SIZE, SCAN_SIZE+1):
@@ -81,6 +87,9 @@ def compute_position_score(position):
 			sum += game_map[game_map.normalize(Position(position.x + x, position.y + y))].halite_amount
 	return sum
 
+"""
+	Get the best position of the map
+"""
 def get_best_position():
 	best_position_list = []
 	for position,score in position_score:
@@ -184,7 +193,9 @@ def get_closest_dropoff_position(position):
 	
 	return closest_position
 	
-
+"""
+	Return truc is the ship is on a dropoff
+"""
 def is_ship_on_dropoff(ship):
 	if ship.position == me.shipyard.position:
 		return True
@@ -194,14 +205,18 @@ def is_ship_on_dropoff(ship):
 				return True
 	return False
 
-
-
+"""
+	Return true a ship has a given status
+"""
 def is_ship_with_status(status):
 	for id in ship_status:
 		if ship_status[id] == status:
 			return True
 	return False
 
+"""
+	Return truc is the ship is on a dropoff
+"""
 def dropoff_management():
 	if (len(me.get_ships()) > SHIP_BEFORE_DROPOFF) \
 	and (best_position_list[0] != me.shipyard.position) \
