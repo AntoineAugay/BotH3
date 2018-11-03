@@ -30,18 +30,21 @@ ship_move_compute = {}
 ship_stock = {}
 ship_previous_position = {}
 
+returning_ship_moves_old_pos_new_pos = {}
 """
 	map info
 """
+pos_taken = {}
 position_score = []
 best_position_list = []
+command_queue = []
 
 MIN_MEAN_CELL_HALITE = 130
 MAX_MEAN_CELL_HALITE = 240
 COEF_MEAN_CELL_HALITE_RANGE = 0.5
 COEF_HALITE_RETURN_THRESHOLD = 0.7
 SCAN_SIZE = 3
-BEST_POSITION_KEPT = 1
+BEST_POSITION_KEPT = 3
 
 SHIP_BEFORE_DROPOFF = 15
 MAX_DROPOFF = 1
@@ -187,7 +190,6 @@ def get_closest_dropoff_position(position):
 	for dropoff in me.get_dropoffs():
 		tmp_dist = game_map.calculate_distance(position, dropoff.position)
 		if tmp_dist < smallest_dist:
-			logging.info("dropoff closer")
 			closest_position = dropoff.position
 			smallest_dist = tmp_dist
 	
@@ -225,6 +227,114 @@ def dropoff_management():
 		logging.info("GO_DROPOFFFFFF !!!")
 		closest_ship,_ = distance_to_target(best_position_list[0])[0]
 		ship_status[closest_ship.id] = "dropoff_builder"
+
+		
+"""
+	Get the movement cost of a given ship
+"""
+def get_ship_movement_cost(ship):
+	return game_map[ship.position].halite_amount*0.1
+		
+"""
+	Get the position with a given pos and move
+"""
+def get_new_position(pos, move):
+	if 'o' in move:
+		return pos
+	else:
+		return pos.directional_offset(move)
+
+"""
+	Get best returning move
+"""
+def compute_returning_moves(ship):
+	moves = game_map.get_unsafe_moves(ship.position, get_closest_dropoff_position(ship.position))
+	moves.sort(key=lambda move : game_map[get_new_position(ship.position, move)].halite_amount)
+	final_move = None
+	for move in moves:
+		position = get_new_position(ship.position, move)
+		# Check if the position is already booked
+		if get_id_from_pos(position) in pos_taken:
+			continue
+		# Check if the position is not occupied
+		if not game_map[position].is_occupied:
+			final_move = move
+			break
+		# Check if the ship_on_cell is not mine
+		if not me.has_ship(game_map[position].ship.id):
+			continue
+		ship_on_cell = game_map[position].ship
+		# Check if the ship_on_cell is already compute
+		if ship_on_cell.id in ship_move_compute:
+			# Check if the ship_on_cell stay still
+			if ship_move_compute[ship_on_cell.id] == ship_on_cell.stay_still():
+				continue
+			else:
+				final_move = move
+				break
+		# Compute move for the ship_on_cell
+		ship_on_cell_move = compute_move_to_free_space(ship_on_cell, ship)
+		ship_move_compute[ship_on_cell.id] = ship_on_cell_move
+		new_pos = get_new_position(ship_on_cell.position, ship_on_cell_move)
+		pos_taken[get_id_from_pos(new_pos)] = 1
+		logging.info("pos taken:{}x{}".format(new_pos.x, new_pos.y))
+		command_queue.append(ship_on_cell.move(ship_on_cell_move))
+		logging.info("ship_on_cell_move {}x{}: {}".format(ship_on_cell.position.x, ship_on_cell.position.y, ship_on_cell.move(ship_on_cell_move)))
+		#logging.info("compute_free_space_move[{}]:{}".format(ship_on_cell.id, ship_on_cell_move))
+		#logging.info("command_queue:{}".format(command_queue))
+		if ship_on_cell_move == (0,0):
+			continue
+		else:
+			final_move = move
+			break		
+	if final_move is None:
+		return (0,0)
+	else:
+		return final_move
+
+"""
+	Get best move to free space
+"""
+def compute_move_to_free_space(ship, ship_priority):
+	final_move = None
+	if ship.halite_amount < get_ship_movement_cost(ship):
+		final_move = (0,0)
+		return final_move
+	if get_id_from_pos(ship_priority.position) not in pos_taken:
+		final_move = game_map.get_unsafe_moves(ship.position, ship_priority.position)[0]
+		return final_move
+	for pos in ship_on_cell_move.position.get_surrounding_cardinals():
+		if get_id_from_pos(pos) in pos_taken:
+			continue
+		if game_map[position].is_occupied:
+			# Check if the ship_on_cell is not mine
+			if not me.has_ship(game_map[position].ship.id):
+				continue
+			ship_on_cell = game_map[position].ship
+			if ship_on_cell.id == ship_priority.id:
+				continue
+			# Check if the ship_on_cell is already compute
+			if ship_on_cell.id not in ship_move_compute:
+				continue
+			if ship_move_compute[ship_on_cell.id] == ship_on_cell.stay_still():
+				continue
+		final_move = game_map.get_unsafe_moves(ship.position, pos)[0]
+		return final_move	
+	final_move = (0,0)
+	return final_move
+	
+"""
+	Get the id from the position
+"""
+def get_id_from_pos(pos):
+	norm_pos = game_map.normalize(pos)
+	return norm_pos.x+(norm_pos.y*game_map.width)
+
+"""
+	Get the position from the id
+"""	
+def get_pos_from_id(id):
+	return Position(id%game_map.width, (id-(id%game_map.width))/game_map.width)
 	
 """
 	Main loop
@@ -234,6 +344,13 @@ while True:
 	me = game.me
 	game_map = game.game_map
 	command_queue = []
+	ship_move_compute = {}
+	pos_taken = {}
+	
+	ship_returning = []
+	ship_exploring = []
+	ship_collecting = []
+	ship_other = []
 	
 	if game.turn_number == 1:
 		position_score = scan_map()
@@ -259,8 +376,45 @@ while True:
 	dropoff_management()
 	end_game_management()
 	
+	for ship in me.get_ships():
+		if ship.id not in ship_status:
+			ship_status[ship.id] = "exploring"
+		if ship_status[ship.id] == "returning":
+			ship_returning.append(ship)
+		elif ship_status[ship.id] == "exploring":
+			ship_exploring.append(ship)
+		elif ship_status[ship.id] == "collecting":
+			ship_collecting.append(ship)
+		else:
+			ship_other.append(ship)
+	
+	ship_returning.sort(key=lambda ship : game_map.calculate_distance(ship.position, get_closest_dropoff_position(ship.position)))	
+
+	# Start returning ship management --------------------------------
+	for ship in ship_returning:
+		if ship.id in ship_move_compute:
+			#logging.info("Ship already compute")
+			continue
+		if is_ship_on_dropoff(ship):
+			ship_status[ship.id] = "exploring"
+			continue
+		move = compute_returning_moves(ship)
+		new_pos = get_new_position(ship.position, move)
+		pos_taken[get_id_from_pos(new_pos)] = 1
+		logging.info("pos taken:{}x{}".format(new_pos.x, new_pos.y))
+		ship_move_compute[ship.id] = move
+		command_queue.append(ship.move(move))
+		logging.info("ship {}x{}: {}".format(ship.position.x, ship.position.y, ship.move(move)))
+		#logging.info("compute_returning_move[{}]:{}".format(ship.id, move))
+		#logging.info("command_queue:{}".format(command_queue))
+		
+	 # End returning ship management-----------------------------------------------------------
 	
 	for ship in me.get_ships():
+		
+		if ship.id in ship_move_compute:
+			#logging.info("Ship already compute")
+			continue
 		
 		if ship.id not in ship_previous_position:
 			ship_previous_position[ship.id] = ship.position
@@ -278,16 +432,13 @@ while True:
 		ship_move = None
 		
 		# Start status management ------------------------------------------
-		if ship.id not in ship_status:
-			ship_status[ship.id] = "exploring"
-
 		if ship_status[ship.id] == "counter_ship_on_shipyard":
 			if game_map.calculate_distance(ship.position, me.shipyard.position) == 1:
 				move = game_map.get_unsafe_moves(ship.position, me.shipyard.position)[0]
 				ship_status[ship.id] = "exploring"
 			else:
 				move = game_map.naive_navigate(ship, me.shipyard.position)
-			ship_move_compute[ship] = ship.move(move)
+			ship_move_compute[ship.id] = ship.move(move)
 			command_queue.append(ship.move(move))
 			continue
 		elif ship_status[ship.id] == "end_game":
@@ -295,25 +446,28 @@ while True:
 				move = game_map.get_unsafe_moves(ship.position, get_closest_dropoff_position(ship.position))[0]
 			else:
 				move = game_map.naive_navigate(ship, get_closest_dropoff_position(ship.position))
-			ship_move_compute[ship] = ship.move(move)
+			ship_move_compute[ship.id] = ship.move(move)
 			command_queue.append(ship.move(move))
 			continue
 		elif ship_status[ship.id] == "dropoff_builder":
 			logging.info("dropoff_builder management")
-			if ship.position == best_position_list[0]:
-				if me.halite_amount + game_map[best_position_list[0]].halite_amount + ship.halite_amount >= 4000:
+			build_pos = best_position_list[0]
+			if game_map[best_position_list[0]].has_structure:
+				build_pos = best_position_list[2]
+			if ship.position == build_pos:
+				if me.halite_amount + game_map[build_pos].halite_amount + ship.halite_amount >= 4000:
 					logging.info("make dropff")
-					ship_move_compute[ship] = ship.make_dropoff()
+					ship_move_compute[ship.id] = ship.make_dropoff()
 					command_queue.append(ship.make_dropoff())
 					continue
 				else:
 					logging.info("wait to dropff")
-					ship_move_compute[ship] = ship.stay_still()
+					ship_move_compute[ship.id] = ship.stay_still()
 					command_queue.append(ship.stay_still())
 					continue
 			else:
-				move = game_map.naive_navigate(ship, best_position_list[0])
-				ship_move_compute[ship] = ship.move(move)
+				move = game_map.naive_navigate(ship, build_pos)
+				ship_move_compute[ship.id] = ship.move(move)
 				command_queue.append(ship.move(move))
 				continue
 		elif ship_status[ship.id] == "returning":
@@ -321,23 +475,20 @@ while True:
 				ship_status[ship.id] = "exploring"
 			else:
 				move = game_map.naive_navigate(ship, get_closest_dropoff_position(ship.position))
-				ship_move_compute[ship] = ship.move(move)
+				ship_move_compute[ship.id] = ship.move(move)
 				command_queue.append(ship.move(move))
 				continue
 		elif ship.halite_amount >= constants.MAX_HALITE*COEF_HALITE_RETURN_THRESHOLD:
 			ship_status[ship.id] = "returning"
 		elif ship_status[ship.id] == "collecting":
-			ship_move_compute[ship] = ship.stay_still()
+			ship_move_compute[ship.id] = ship.stay_still()
 			command_queue.append(ship.stay_still())
 			ship_status[ship.id] = "exploring"
 			continue
 		# End status management -------------------------------------------
 		
-		
-		
-		
 		if ship.halite_amount < movement_cost :
-			ship_move_compute[ship] = ship.stay_still()
+			ship_move_compute[ship.id] = ship.stay_still()
 			command_queue.append(ship.stay_still())
 			continue
 		
@@ -345,6 +496,8 @@ while True:
 		possible_position_list = []
 		for possible_position in ship.position.get_surrounding_cardinals():	   
 			if game_map[possible_position].is_occupied:
+				continue
+			if get_id_from_pos(possible_position) in pos_taken:
 				continue
 
 			# Ship stock or at the base
@@ -375,10 +528,10 @@ while True:
 			ship_move = game_map.naive_navigate(ship, best_position)   
 		# Store the move for that ship
 		if ship_move == None:
-			ship_move_compute[ship] = ship.stay_still()
+			ship_move_compute[ship.id] = ship.stay_still()
 			command_queue.append(ship.stay_still())
 		else:
-			ship_move_compute[ship] = ship.move(ship_move)
+			ship_move_compute[ship.id] = ship.move(ship_move)
 			command_queue.append(ship.move(ship_move))
 		
 		ship_previous_position[ship.id] = ship.position
@@ -391,8 +544,9 @@ while True:
 			nb_free_cell += 1
 
 	# Generate new ship
-	if nb_free_cell >= 2 \
+	if nb_free_cell >= 1 \
 	and not is_ship_with_status("dropoff_builder") \
+	and not get_id_from_pos(me.shipyard.position) in pos_taken \
 	and len(me.get_ships()) < max_ship \
 	and game.turn_number <= max_turn/2 \
 	and me.halite_amount >= constants.SHIP_COST \
