@@ -45,7 +45,7 @@ COEF_MEAN_CELL_HALITE_RANGE = 0.5
 COEF_HALITE_RETURN_THRESHOLD = 0.7
 SCAN_SIZE = 3
 BEST_POSITION_KEPT = 3
-
+COEF_TURN_STOP_BUILD = 0.5
 SHIP_BEFORE_DROPOFF = 15
 MAX_DROPOFF = 1
 
@@ -224,6 +224,7 @@ def dropoff_management():
 	and (best_position_list[0] != me.shipyard.position) \
 	and (len(me.get_dropoffs()) < MAX_DROPOFF) \
 	and (is_ship_with_status("dropoff_builder") == False):
+		
 		logging.info("GO_DROPOFFFFFF !!!")
 		closest_ship,_ = distance_to_target(best_position_list[0])[0]
 		ship_status[closest_ship.id] = "dropoff_builder"
@@ -280,8 +281,6 @@ def compute_returning_moves(ship):
 		logging.info("pos taken:{}x{}".format(new_pos.x, new_pos.y))
 		command_queue.append(ship_on_cell.move(ship_on_cell_move))
 		logging.info("ship_on_cell_move {}x{}: {}".format(ship_on_cell.position.x, ship_on_cell.position.y, ship_on_cell.move(ship_on_cell_move)))
-		#logging.info("compute_free_space_move[{}]:{}".format(ship_on_cell.id, ship_on_cell_move))
-		#logging.info("command_queue:{}".format(command_queue))
 		if ship_on_cell_move == (0,0):
 			continue
 		else:
@@ -390,6 +389,7 @@ while True:
 	
 	ship_returning.sort(key=lambda ship : game_map.calculate_distance(ship.position, get_closest_dropoff_position(ship.position)))	
 
+
 	# Start returning ship management --------------------------------
 	for ship in ship_returning:
 		if ship.id in ship_move_compute:
@@ -405,11 +405,9 @@ while True:
 		ship_move_compute[ship.id] = move
 		command_queue.append(ship.move(move))
 		logging.info("ship {}x{}: {}".format(ship.position.x, ship.position.y, ship.move(move)))
-		#logging.info("compute_returning_move[{}]:{}".format(ship.id, move))
-		#logging.info("command_queue:{}".format(command_queue))
-		
 	 # End returning ship management-----------------------------------------------------------
 	
+
 	for ship in me.get_ships():
 		
 		if ship.id in ship_move_compute:
@@ -548,7 +546,7 @@ while True:
 	and not is_ship_with_status("dropoff_builder") \
 	and not get_id_from_pos(me.shipyard.position) in pos_taken \
 	and len(me.get_ships()) < max_ship \
-	and game.turn_number <= max_turn/2 \
+	and game.turn_number <= max_turn*COEF_TURN_STOP_BUILD \
 	and me.halite_amount >= constants.SHIP_COST \
 	and not game_map[me.shipyard].is_occupied:
 		command_queue.append(game.me.shipyard.spawn())
