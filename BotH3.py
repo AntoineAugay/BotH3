@@ -20,7 +20,7 @@ MAX_TURN = {\
 	56:476,\
 	64:501}
 
-game.ready("MyPythonBotV16")
+game.ready("MyPythonBotV17")
 
 """
 	ships info
